@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* Brand tokens: SWiSH SAFE-T green, grey, dark */
+    /* #96BB1A -> oklch ~0.74 0.17 122 */
+    /* #808080 -> oklch ~0.56 0 0 */
+    /* #5F6368 sidebar -> oklch ~0.43 0.006 264 */
+    /* #111111 text -> oklch ~0.14 0 0 */
+    /* #F7F8F9 shell bg -> oklch ~0.975 0 0 */
+    /* #DADDE1 border -> oklch ~0.88 0.004 264 */
+
+    --background: 0.975 0.002 264;
+    --foreground: 0.14 0 0;
+    --card: 1 0 0;
+    --card-foreground: 0.14 0 0;
+    --popover: 1 0 0;
+    --popover-foreground: 0.14 0 0;
+    --primary: 0.74 0.17 122;
+    --primary-foreground: 0.14 0 0;
+    --secondary: 0.97 0.003 264;
+    --secondary-foreground: 0.43 0.006 264;
+    --muted: 0.96 0.003 264;
+    --muted-foreground: 0.5 0 0;
+    --accent: 0.74 0.17 122;
+    --accent-foreground: 0.14 0 0;
+    --destructive: 0.58 0.22 25;
+    --destructive-foreground: 1 0 0;
+    --border: 0.88 0.004 264;
+    --input: 0.88 0.004 264;
+    --ring: 0.74 0.17 122;
+    --chart-1: 0.74 0.17 122;
+    --chart-2: 0.72 0.18 50;
+    --chart-3: 0.58 0.22 25;
+    --chart-4: 0.56 0 0;
+    --chart-5: 0.43 0.006 264;
+    --sidebar: 0.43 0.006 264;
+    --sidebar-foreground: 0.95 0 0;
+    --sidebar-primary: 0.74 0.17 122;
+    --sidebar-primary-foreground: 0.14 0 0;
+    --sidebar-accent: 0.35 0.005 264;
+    --sidebar-accent-foreground: 0.95 0 0;
+    --sidebar-border: 0.38 0.005 264;
+    --sidebar-ring: 0.74 0.17 122;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    font-weight: 600;
+  }
+}
+
+/* Status badge colors */
+.status-draft {
+  background-color: #9aa0a6;
+  color: #fff;
+}
+.status-pending-review {
+  background-color: #f2a23a;
+  color: #fff;
+}
+.status-pending-approval {
+  background-color: #f4a62a;
+  color: #fff;
+}
+.status-completed {
+  background-color: #2fae5b;
+  color: #fff;
+}
+.status-returned {
+  background-color: #e74c3c;
+  color: #fff;
+}
+
+/* KPI icon tile colors */
+.kpi-grey {
+  background-color: #8a8f97;
+}
+.kpi-amber {
+  background-color: #f4a62a;
+}
+.kpi-lime {
+  background-color: #a6c72a;
+}
+.kpi-green {
+  background-color: #2fae5b;
+}
+
+/* Sidebar active nav item */
+.nav-active {
+  background-color: #96bb1a;
+  color: #111111;
+  border-radius: 0.5rem;
+}
+.nav-inactive {
+  color: rgba(255, 255, 255, 0.85);
+}
+.nav-inactive:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+}

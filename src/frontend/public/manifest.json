@@ -1,0 +1,25 @@
+{
+  "name": "SWiSH SAFE-T",
+  "short_name": "SAFE-T",
+  "description": "Safety inspection management app",
+  "theme_color": "#96BB1A",
+  "background_color": "#FFFFFF",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/assets/generated/swish-safet-logo-transparent.dim_400x120.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/generated/swish-safet-logo-transparent.dim_400x120.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
