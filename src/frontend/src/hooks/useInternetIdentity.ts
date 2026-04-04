@@ -1,32 +1,30 @@
-/**
- * NO-OP STUB — Internet Identity is NOT used in this app.
- * This file exists only to satisfy any legacy imports.
- * Zero DFINITY imports. Zero AuthClient calls. Zero side effects.
- */
-import type { ReactNode } from "react";
-import { createElement } from "react";
+// NO-OP STUB — Internet Identity is not used in this app.
+// Username/password auth is handled entirely by AuthContext and the ICP backend.
+// DO NOT import or use @dfinity/auth-client here.
 
-export type Status =
-  | "initializing"
-  | "idle"
-  | "logging-in"
-  | "success"
-  | "loginError";
+import {
+  type ReactNode,
+  createContext,
+  createElement,
+  useContext,
+} from "react";
+
+export type Status = "idle";
 
 export type InternetIdentityContext = {
   identity: undefined;
   login: () => void;
   clear: () => void;
   loginStatus: Status;
-  isInitializing: boolean;
-  isLoginIdle: boolean;
-  isLoggingIn: boolean;
-  isLoginSuccess: boolean;
-  isLoginError: boolean;
+  isInitializing: false;
+  isLoginIdle: true;
+  isLoggingIn: false;
+  isLoginSuccess: false;
+  isLoginError: false;
   loginError: undefined;
 };
 
-const NOOP_CONTEXT: InternetIdentityContext = {
+const ctx = createContext<InternetIdentityContext>({
   identity: undefined,
   login: () => {},
   clear: () => {},
@@ -37,18 +35,27 @@ const NOOP_CONTEXT: InternetIdentityContext = {
   isLoginSuccess: false,
   isLoginError: false,
   loginError: undefined,
-};
+});
 
-/** Always returns a no-op identity context. */
-export function useInternetIdentity(): InternetIdentityContext {
-  return NOOP_CONTEXT;
-}
+export const useInternetIdentity = (): InternetIdentityContext =>
+  useContext(ctx);
 
-/** Passthrough provider — renders children directly. No AuthClient, no DFINITY. */
 export function InternetIdentityProvider({
   children,
-}: {
-  children: ReactNode;
-}) {
-  return createElement(children as never);
+}: { children: ReactNode }) {
+  return createElement(ctx.Provider, {
+    value: {
+      identity: undefined,
+      login: () => {},
+      clear: () => {},
+      loginStatus: "idle",
+      isInitializing: false,
+      isLoginIdle: true,
+      isLoggingIn: false,
+      isLoginSuccess: false,
+      isLoginError: false,
+      loginError: undefined,
+    },
+    children,
+  });
 }
