@@ -118,3 +118,17 @@
   background-color: rgba(255, 255, 255, 0.1);
   border-radius: 0.5rem;
 }
+
+/* Force all sonner toasts (success, error, warning, info, default) to brand green */
+[data-sonner-toast] {
+  background-color: #96bb1a !important;
+  color: #111111 !important;
+  border-color: #7a9a12 !important;
+}
+[data-sonner-toast] [data-title],
+[data-sonner-toast] [data-description] {
+  color: #111111 !important;
+}
+[data-sonner-toast] [data-icon] svg {
+  color: #111111 !important;
+}

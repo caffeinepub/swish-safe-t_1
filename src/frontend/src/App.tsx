@@ -8,6 +8,7 @@ import { ClientsPage } from "./pages/ClientsPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { QuestionnairePage } from "./pages/QuestionnairePage";
 import { SetupPage } from "./pages/SetupPage";
 import { SitesPage } from "./pages/SitesPage";
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/:clientId/sites" element={<SitesPage />} />
             <Route path="/tasks" element={<TaskListPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route
               path="/questionnaire/:siteId"
               element={<QuestionnairePage />}

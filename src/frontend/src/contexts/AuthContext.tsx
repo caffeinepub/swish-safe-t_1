@@ -6,6 +6,11 @@ import {
   useEffect,
   useState,
 } from "react";
+import { toast } from "sonner";
+import { getActor, resetActor } from "../lib/actor";
+import { fromBackendUser } from "../lib/backendAdapter";
+import { pullAllFromBackend, setupOnlineListener } from "../lib/backendSync";
+import { pullUsersFromBackend } from "../lib/backendUserService";
 import {
   ensureAdminSeeded,
   getUserByUsername,
@@ -17,7 +22,7 @@ import type { AppUser } from "../types";
 
 interface AuthContextType {
   user: AppUser | null;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   refresh: () => void;
   isAdmin: () => boolean;
@@ -30,8 +35,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
 
   useEffect(() => {
+    // 1. Seed local admin + sample data (offline fallback — always runs first)
     ensureAdminSeeded();
     seedSampleData();
+
+    // 2. Restore session from local store immediately (before any async work)
     const session = getSession();
     if (session) {
       const fresh = getUserByUsername(session.username);
@@ -42,15 +50,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearSession();
       }
     }
+
+    // 3. Setup online listener for offline queue auto-flush
+    setupOnlineListener();
+
+    // 4. Backend init: bootstrap admin first, then pull all data
+    //    We sequence these so bootstrapAdmin completes before the pull.
+    //    Errors at any step are handled gracefully — local data remains usable.
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const actor = await getActor();
+        await actor.bootstrapAdmin();
+      } catch (e) {
+        console.warn("[Auth] bootstrapAdmin failed:", e);
+        resetActor();
+      }
+
+      if (cancelled) return;
+
+      try {
+        await pullAllFromBackend();
+      } catch {
+        // Already handled inside pullAllFromBackend (schedules retry)
+        toast("Using offline data", {
+          description:
+            "Could not reach server. Changes will sync when reconnected.",
+          duration: 4000,
+        });
+      }
+
+      if (cancelled) return;
+
+      try {
+        await pullUsersFromBackend();
+        // Refresh current user from local store after users are pulled
+        const currentSession = getSession();
+        if (currentSession) {
+          const fresh = getUserByUsername(currentSession.username);
+          if (fresh?.isEnabled) {
+            setUser(fresh);
+            setSession(fresh);
+          } else {
+            clearSession();
+            setUser(null);
+          }
+        }
+      } catch (e) {
+        console.warn("[Auth] pullUsersFromBackend failed:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const login = useCallback((username: string, password: string): boolean => {
-    const verified = verifyCredentials(username, password);
-    if (!verified) return false;
-    setSession(verified);
-    setUser(verified);
-    return true;
-  }, []);
+  const login = useCallback(
+    async (username: string, password: string): Promise<boolean> => {
+      // Try backend first for freshest credentials
+      try {
+        const actor = await getActor();
+        const result = await actor.verifyCredentials(username, btoa(password));
+        const backendUserRaw = result[0];
+        if (result.length > 0 && backendUserRaw !== undefined) {
+          const backendUser = fromBackendUser(backendUserRaw);
+          if (!backendUser.isEnabled) return false;
+          setSession(backendUser);
+          setUser(backendUser);
+          return true;
+        }
+        // Backend returned empty opt — credentials invalid
+        // Still check locally in case backend hasn't synced yet
+      } catch (e) {
+        console.warn(
+          "[Auth] Backend verifyCredentials failed, falling back to local:",
+          e,
+        );
+        resetActor();
+      }
+
+      // Fallback to local credentials
+      const verified = verifyCredentials(username, password);
+      if (!verified) return false;
+      setSession(verified);
+      setUser(verified);
+      return true;
+    },
+    [],
+  );
 
   const logout = useCallback(() => {
     clearSession();

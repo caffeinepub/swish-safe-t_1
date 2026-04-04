@@ -1,3 +1,4 @@
+import { getPSConfig } from "../components/PowerSupplyTable";
 import type {
   Audit,
   AuditAnswer,
@@ -66,12 +67,25 @@ export function exportAuditToCSV(
 
     // Power supply
     const ps: PowerSupplyData | undefined = audit.powerSupply[section.id];
-    if (section.hasPowerSupply && ps) {
+    if (section.hasPowerSupply && ps && ps.rows.length > 0) {
       rows.push([]);
-      rows.push(["Power Supply Details"]);
-      rows.push(["Type", ps.type]);
-      for (const [k, v] of Object.entries(ps.fields)) {
-        rows.push([k, v]);
+      rows.push(["Power Supply Details", `Type: ${ps.type}`]);
+      const psConfig = getPSConfig(ps.type);
+      const headerRow = [
+        "Circuit Name",
+        ...psConfig.flatMap((g) => g.labels ?? g.subCols),
+      ];
+      rows.push(headerRow);
+      for (const row of ps.rows) {
+        const dataRow = [
+          row.circuitName,
+          ...psConfig.flatMap((g) =>
+            (g.labels ?? g.subCols).map(
+              (_, i) => row.values[g.subCols[i]] ?? "",
+            ),
+          ),
+        ];
+        rows.push(dataRow);
       }
     }
 

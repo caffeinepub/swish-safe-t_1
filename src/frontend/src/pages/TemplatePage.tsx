@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -17,11 +17,111 @@ import {
   Plus,
   Save,
   Trash2,
+  X,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  deleteTemplateFromBackend,
+  pushTemplateToBackend,
+} from "../lib/backendSync";
 import { TEMPLATES_KEY, getList, saveList } from "../lib/dataStore";
 import type { Template, TemplateQuestion, TemplateSection } from "../types";
+
+// Tag-based options input — each option is a pill/badge that can be removed.
+// Enter or comma adds the typed text as a new tag; Backspace on empty removes the last tag.
+function QuestionOptionsInput({
+  options,
+  onChange,
+}: {
+  options: string[];
+  onChange: (opts: string[]) => void;
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const addTag = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (options.includes(trimmed)) return; // skip duplicate
+    onChange([...options, trimmed]);
+    setInputValue("");
+  };
+
+  const removeTag = (index: number) => {
+    const updated = options.filter((_, i) => i !== index);
+    onChange(updated);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(inputValue);
+    } else if (
+      e.key === "Backspace" &&
+      inputValue === "" &&
+      options.length > 0
+    ) {
+      removeTag(options.length - 1);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val.includes(",")) {
+      const parts = val.split(",");
+      for (const part of parts.slice(0, -1)) {
+        addTag(part);
+      }
+      setInputValue(parts[parts.length - 1]);
+    } else {
+      setInputValue(val);
+    }
+  };
+
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: click-to-focus wrapper; keyboard handled by inner <input>
+    <div
+      role="presentation"
+      className="flex flex-wrap gap-1.5 items-center min-h-[36px] rounded-md border border-input bg-background px-2 py-1.5 cursor-text"
+      onClick={() => inputRef.current?.focus()}
+      data-ocid="template.input"
+    >
+      {options.map((opt, i) => (
+        <span
+          key={opt}
+          className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium select-none"
+          style={{ backgroundColor: "#96BB1A", color: "#111" }}
+        >
+          {opt}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              removeTag(i);
+            }}
+            className="rounded-full hover:bg-black/20 p-0.5 transition-colors"
+            aria-label={`Remove ${opt}`}
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        value={inputValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        placeholder={
+          options.length === 0
+            ? "Type an option, press Enter or comma"
+            : "Add option..."
+        }
+        className="flex-1 min-w-[120px] text-xs bg-transparent outline-none placeholder:text-muted-foreground"
+      />
+    </div>
+  );
+}
 
 export function TemplatePage() {
   const [templates, setTemplates] = useState(() =>
@@ -63,6 +163,9 @@ export function TemplatePage() {
     saveList(TEMPLATES_KEY, updated);
     setTemplates(updated);
     toast.success("Template deleted");
+    deleteTemplateFromBackend(id).catch((e) =>
+      console.warn("[Templates] deleteTemplateFromBackend failed:", e),
+    );
   };
 
   const handleSaveTemplate = () => {
@@ -76,6 +179,9 @@ export function TemplatePage() {
     setTemplates(updated);
     setEditorOpen(false);
     toast.success("Template saved");
+    pushTemplateToBackend(toSave).catch((e) =>
+      console.warn("[Templates] pushTemplateToBackend failed:", e),
+    );
   };
 
   const addSection = () => {
@@ -105,25 +211,42 @@ export function TemplatePage() {
     sectionId: string,
     updates: Partial<TemplateSection>,
   ) => {
-    setEditTemplate((t) =>
-      t
-        ? {
-            ...t,
-            sections: t.sections.map((s) =>
-              s.id === sectionId ? { ...s, ...updates } : s,
-            ),
+    setEditTemplate((t) => {
+      if (!t) return t;
+      return {
+        ...t,
+        sections: t.sections.map((s) => {
+          if (s.id !== sectionId) return s;
+          const merged = { ...s, ...updates };
+          // Auto-force imageRequired on all questions if section title is "Critical Observation"
+          if (
+            updates.title !== undefined &&
+            /critical observation/i.test(updates.title)
+          ) {
+            merged.questions = merged.questions.map((q) => ({
+              ...q,
+              imageRequired: true,
+            }));
           }
-        : t,
-    );
+          return merged;
+        }),
+      };
+    });
   };
 
   const addQuestion = (sectionId: string) => {
+    // Find the section to check if it's a Critical Observation section
+    const section = editTemplate?.sections.find((s) => s.id === sectionId);
+    const isCritical =
+      section !== undefined && /critical observation/i.test(section.title);
     const newQ: TemplateQuestion = {
       id: `q-${Date.now()}`,
       text: "New question",
       type: "radio",
       options: ["Compliant", "Non-Compliant", "N/A"],
       required: true,
+      imageRequired: isCritical,
+      optionRemarks: {},
     };
     setEditTemplate((t) =>
       t
@@ -167,9 +290,22 @@ export function TemplatePage() {
               s.id === sectionId
                 ? {
                     ...s,
-                    questions: s.questions.map((q) =>
-                      q.id === qId ? { ...q, ...updates } : q,
-                    ),
+                    questions: s.questions.map((q) => {
+                      if (q.id !== qId) return q;
+                      const merged = { ...q, ...updates };
+                      // If options changed, prune optionRemarks keys that no longer exist
+                      if (updates.options !== undefined) {
+                        const newOpts = new Set(updates.options);
+                        const prunedRemarks: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(
+                          merged.optionRemarks ?? {},
+                        )) {
+                          if (newOpts.has(k)) prunedRemarks[k] = v;
+                        }
+                        merged.optionRemarks = prunedRemarks;
+                      }
+                      return merged;
+                    }),
                   }
                 : s,
             ),
@@ -394,7 +530,7 @@ export function TemplatePage() {
                                     className="text-sm"
                                     data-ocid="template.input"
                                   />
-                                  <div className="flex gap-2 items-center flex-wrap">
+                                  <div className="flex gap-3 items-center flex-wrap">
                                     <select
                                       value={q.type}
                                       onChange={(e) =>
@@ -409,6 +545,8 @@ export function TemplatePage() {
                                       <option value="radio">Radio</option>
                                       <option value="dropdown">Dropdown</option>
                                     </select>
+
+                                    {/* Mandatory checkbox */}
                                     <label className="flex items-center gap-1 text-xs cursor-pointer">
                                       <input
                                         type="checkbox"
@@ -419,23 +557,84 @@ export function TemplatePage() {
                                           })
                                         }
                                       />
-                                      Required
+                                      Mandatory
                                     </label>
+
+                                    {/* Image Required switch */}
+                                    <div className="flex items-center gap-1.5 text-xs">
+                                      <Switch
+                                        id={`img-req-${q.id}`}
+                                        checked={q.imageRequired ?? false}
+                                        onCheckedChange={(v) =>
+                                          updateQuestion(section.id, q.id, {
+                                            imageRequired: v,
+                                          })
+                                        }
+                                      />
+                                      <Label
+                                        htmlFor={`img-req-${q.id}`}
+                                        className="text-xs cursor-pointer"
+                                      >
+                                        Image Required
+                                      </Label>
+                                    </div>
                                   </div>
-                                  <Input
-                                    value={q.options.join(", ")}
-                                    onChange={(e) =>
+
+                                  {/* Tag-based options input */}
+                                  <QuestionOptionsInput
+                                    options={q.options}
+                                    onChange={(opts) =>
                                       updateQuestion(section.id, q.id, {
-                                        options: e.target.value
-                                          .split(",")
-                                          .map((o) => o.trim())
-                                          .filter(Boolean),
+                                        options: opts,
                                       })
                                     }
-                                    placeholder="Options (comma-separated)"
-                                    className="text-xs"
-                                    data-ocid="template.input"
                                   />
+
+                                  {/* Per-option default remarks */}
+                                  {q.options.length > 0 && (
+                                    <div className="space-y-1.5 pt-1">
+                                      <p className="text-xs font-medium text-muted-foreground">
+                                        Default Remarks per option:
+                                      </p>
+                                      <div className="space-y-1.5">
+                                        {q.options.map((opt) => (
+                                          <div
+                                            key={opt}
+                                            className="flex items-center gap-2"
+                                          >
+                                            <span
+                                              className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium flex-shrink-0 min-w-[60px] justify-center"
+                                              style={{
+                                                backgroundColor: "#96BB1A",
+                                                color: "#111",
+                                              }}
+                                            >
+                                              {opt}
+                                            </span>
+                                            <input
+                                              type="text"
+                                              value={
+                                                q.optionRemarks?.[opt] ?? ""
+                                              }
+                                              onChange={(e) => {
+                                                const updated = {
+                                                  ...(q.optionRemarks ?? {}),
+                                                  [opt]: e.target.value,
+                                                };
+                                                updateQuestion(
+                                                  section.id,
+                                                  q.id,
+                                                  { optionRemarks: updated },
+                                                );
+                                              }}
+                                              placeholder={`Default remark when "${opt}" is selected`}
+                                              className="flex-1 text-xs border border-input rounded px-2 py-1 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                                 <button
                                   type="button"

@@ -1,11 +1,12 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle, ClipboardList, Eye, XCircle } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../hooks/useAuth";
+import { pushAuditToBackend } from "../lib/backendSync";
 import {
   AUDITS_KEY,
   CLIENTS_KEY,
@@ -37,51 +38,64 @@ export function TaskListPage() {
   const relevantAudits = useMemo(() => {
     if (!user) return [];
     const role = user.role;
-    const isAdminOrMgr = role === "Admin" || role === "Manager";
+    const isAdmin = role === "Admin";
     return audits
       .filter((a) => {
-        if (isAdminOrMgr) return true;
-        if (role === "Reviewer")
-          return ["Pending Review", "Returned for Correction"].includes(
-            a.status,
+        const site = sites.find((s) => s.id === a.siteId);
+        if (isAdmin) return true;
+        if (role === "Manager") {
+          return (
+            a.status === "Pending Approval" &&
+            site?.assignedManagerId === user.id
           );
-        if (role === "Auditor") return a.status === "Draft";
+        }
+        if (role === "Reviewer") {
+          return (
+            ["Pending Review", "Returned for Correction"].includes(a.status) &&
+            site?.assignedReviewerId === user.id
+          );
+        }
+        if (role === "Auditor") {
+          return a.status === "Draft" && site?.assignedAuditorId === user.id;
+        }
         return false;
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [audits, user]);
+  }, [audits, sites, user]);
 
   const handleApprove = (audit: Audit) => {
-    const updated = audits.map((a) =>
-      a.id === audit.id
-        ? {
-            ...a,
-            status: "Completed" as const,
-            approvedBy: user?.username,
-            updatedAt: Date.now(),
-          }
-        : a,
-    );
+    const updatedAudit: Audit = {
+      ...audit,
+      status: "Completed" as const,
+      approvedBy: user?.username,
+      updatedAt: Date.now(),
+    };
+    const updated = audits.map((a) => (a.id === audit.id ? updatedAudit : a));
     saveList(AUDITS_KEY, updated);
     toast.success("Audit approved and completed");
+    // Sync to backend (fire-and-forget)
+    pushAuditToBackend(updatedAudit).catch((e) =>
+      console.warn("[Tasks] pushAuditToBackend (approve) failed:", e),
+    );
     window.location.reload();
   };
 
   const handleReject = (audit: Audit) => {
     const note = window.prompt("Enter rejection note:");
     if (note === null) return;
-    const updated = audits.map((a) =>
-      a.id === audit.id
-        ? {
-            ...a,
-            status: "Returned for Correction" as const,
-            rejectionNote: note,
-            updatedAt: Date.now(),
-          }
-        : a,
-    );
+    const updatedAudit: Audit = {
+      ...audit,
+      status: "Returned for Correction" as const,
+      rejectionNote: note,
+      updatedAt: Date.now(),
+    };
+    const updated = audits.map((a) => (a.id === audit.id ? updatedAudit : a));
     saveList(AUDITS_KEY, updated);
     toast.success("Audit returned for correction");
+    // Sync to backend (fire-and-forget)
+    pushAuditToBackend(updatedAudit).catch((e) =>
+      console.warn("[Tasks] pushAuditToBackend (reject) failed:", e),
+    );
     window.location.reload();
   };
 
@@ -132,7 +146,7 @@ export function TaskListPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">My Tasks</h1>
           <p className="text-sm text-muted-foreground">
-            {user?.role} view — {relevantAudits.length} item
+            {user?.role} view &mdash; {relevantAudits.length} item
             {relevantAudits.length !== 1 ? "s" : ""}
           </p>
         </div>

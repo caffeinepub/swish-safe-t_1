@@ -30,17 +30,17 @@ import React, {
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { PhotoUpload } from "../components/PhotoUpload";
+import { PowerSupplyTable } from "../components/PowerSupplyTable";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../hooks/useAuth";
+import { pushAuditToBackend } from "../lib/backendSync";
 import {
   AUDITS_KEY,
   CLIENTS_KEY,
   SITES_KEY,
   TEMPLATES_KEY,
-  getById,
   getList,
   saveList,
-  upsert,
 } from "../lib/dataStore";
 import { exportAuditToCSV } from "../lib/exportExcel";
 import { exportAuditToWord } from "../lib/exportWord";
@@ -79,8 +79,10 @@ function loadOrCreateAudit(
     // ignore
   }
 
-  // Create new
-  const template = templates[0];
+  // Create new — use site's assigned template, fall back to first template
+  const site = getList<Site>(SITES_KEY).find((s) => s.id === siteId);
+  const template =
+    templates.find((t) => t.id === site?.templateId) ?? templates[0];
   if (!template) return null;
   return {
     id: `audit-${Date.now()}`,
@@ -95,9 +97,19 @@ function loadOrCreateAudit(
   };
 }
 
+interface ValidationError {
+  sectionId: string;
+  sectionTitle: string;
+  questionId: string;
+  questionIndex: number; // 1-based
+  questionText: string;
+  errorType: "answer" | "image";
+}
+
 interface SectionPanelProps {
   section: TemplateSection;
   audit: Audit;
+  validationErrors: ValidationError[];
   onAnswerChange: (
     questionId: string,
     field: keyof AuditAnswer,
@@ -110,16 +122,22 @@ interface SectionPanelProps {
   onPowerSupplyChange: (sectionId: string, data: PowerSupplyData) => void;
   isOpen: boolean;
   onToggle: () => void;
+  // Track last auto-filled remark per question
+  autoFilledRemarks: Record<string, string>;
+  onAutoFilledRemarksChange: (qId: string, remark: string) => void;
 }
 
 const SectionPanel = React.memo(function SectionPanel({
   section,
   audit,
+  validationErrors,
   onAnswerChange,
   onObservationChange,
   onPowerSupplyChange,
   isOpen,
   onToggle,
+  autoFilledRemarks,
+  onAutoFilledRemarksChange,
 }: SectionPanelProps) {
   const answeredCount = section.questions.filter(
     (q) => audit.answers[q.id]?.answer,
@@ -161,31 +179,7 @@ const SectionPanel = React.memo(function SectionPanel({
 
   const psData: PowerSupplyData = audit.powerSupply[section.id] ?? {
     type: "3in3out",
-    fields: {},
-  };
-
-  const psFields: Record<string, string[]> = {
-    "3in3out": [
-      "Input Voltage L1-L2 (V)",
-      "Input Voltage L2-L3 (V)",
-      "Input Voltage L3-L1 (V)",
-      "Output Voltage L1-L2 (V)",
-      "Output Voltage L2-L3 (V)",
-      "Output Voltage L3-L1 (V)",
-    ],
-    "3in1out": [
-      "Input Voltage L1-L2 (V)",
-      "Input Voltage L2-L3 (V)",
-      "Input Voltage L3-L1 (V)",
-      "Output Voltage (V)",
-      "Output Current (A)",
-    ],
-    "1in1out": [
-      "Input Voltage (V)",
-      "Output Voltage (V)",
-      "Input Current (A)",
-      "Output Current (A)",
-    ],
+    rows: [],
   };
 
   return (
@@ -240,10 +234,19 @@ const SectionPanel = React.memo(function SectionPanel({
               remarks: "",
               images: [],
             };
+            const hasError = validationErrors.some(
+              (e) => e.questionId === question.id,
+            );
+            const photoLabel = question.imageRequired
+              ? "Photos (required)"
+              : "Photos (optional)";
+
             return (
               <div
                 key={question.id}
-                className="space-y-3 p-4 bg-muted/20 rounded-lg"
+                className={`space-y-3 p-4 rounded-lg ${
+                  hasError ? "bg-red-50 border-2 border-red-400" : "bg-muted/20"
+                }`}
               >
                 <div className="flex items-start gap-2">
                   <span className="text-xs font-bold text-muted-foreground mt-0.5 w-5 flex-shrink-0">
@@ -255,15 +258,40 @@ const SectionPanel = React.memo(function SectionPanel({
                       {question.required && (
                         <span className="text-destructive ml-1">*</span>
                       )}
+                      {question.imageRequired && (
+                        <span
+                          className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded"
+                          style={{
+                            backgroundColor: "#FEF3C7",
+                            color: "#92400E",
+                          }}
+                        >
+                          📷 Photo required
+                        </span>
+                      )}
                     </p>
 
                     {/* Answer input */}
                     {question.type === "radio" ? (
                       <RadioGroup
                         value={ans.answer}
-                        onValueChange={(v) =>
-                          onAnswerChange(question.id, "answer", v)
-                        }
+                        onValueChange={(v) => {
+                          onAnswerChange(question.id, "answer", v);
+                          // Auto-fill preset remark if available
+                          const preset = question.optionRemarks?.[v];
+                          if (preset) {
+                            const currentRemark = ans.remarks;
+                            const lastAutoFilled =
+                              autoFilledRemarks[question.id] ?? "";
+                            if (
+                              currentRemark === "" ||
+                              currentRemark === lastAutoFilled
+                            ) {
+                              onAnswerChange(question.id, "remarks", preset);
+                              onAutoFilledRemarksChange(question.id, preset);
+                            }
+                          }
+                        }}
                         className="flex flex-wrap gap-3"
                       >
                         {question.options.map((opt) => (
@@ -284,9 +312,23 @@ const SectionPanel = React.memo(function SectionPanel({
                     ) : (
                       <Select
                         value={ans.answer}
-                        onValueChange={(v) =>
-                          onAnswerChange(question.id, "answer", v)
-                        }
+                        onValueChange={(v) => {
+                          onAnswerChange(question.id, "answer", v);
+                          // Auto-fill preset remark if available
+                          const preset = question.optionRemarks?.[v];
+                          if (preset) {
+                            const currentRemark = ans.remarks;
+                            const lastAutoFilled =
+                              autoFilledRemarks[question.id] ?? "";
+                            if (
+                              currentRemark === "" ||
+                              currentRemark === lastAutoFilled
+                            ) {
+                              onAnswerChange(question.id, "remarks", preset);
+                              onAutoFilledRemarksChange(question.id, preset);
+                            }
+                          }
+                        }}
                       >
                         <SelectTrigger className="max-w-xs">
                           <SelectValue placeholder="Select answer" />
@@ -301,10 +343,10 @@ const SectionPanel = React.memo(function SectionPanel({
                       </Select>
                     )}
 
-                    {/* Remarks (mandatory) */}
+                    {/* Remarks (always optional) */}
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">
-                        Remarks *
+                        Remarks
                       </Label>
                       <Textarea
                         value={ans.remarks}
@@ -324,8 +366,27 @@ const SectionPanel = React.memo(function SectionPanel({
                       onChange={(imgs) =>
                         onAnswerChange(question.id, "images", imgs)
                       }
-                      label="Photos (optional)"
+                      label={photoLabel}
                     />
+
+                    {/* Per-question validation error indicators */}
+                    {hasError && (
+                      <div className="space-y-1">
+                        {validationErrors
+                          .filter((e) => e.questionId === question.id)
+                          .map((err) => (
+                            <p
+                              key={err.errorType}
+                              className="text-xs text-red-600 flex items-center gap-1"
+                            >
+                              <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                              {err.errorType === "answer"
+                                ? "Answer is required"
+                                : "At least one photo is required"}
+                            </p>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -427,14 +488,18 @@ const SectionPanel = React.memo(function SectionPanel({
                 <Label className="text-xs">Configuration Type</Label>
                 <Select
                   value={psData.type}
-                  onValueChange={(v) =>
+                  onValueChange={(v) => {
+                    const newType = v as PowerSupplyData["type"];
                     onPowerSupplyChange(section.id, {
-                      ...psData,
-                      type: v as PowerSupplyData["type"],
-                    })
-                  }
+                      type: newType,
+                      rows: [],
+                    });
+                  }}
                 >
-                  <SelectTrigger className="max-w-xs">
+                  <SelectTrigger
+                    className="max-w-xs"
+                    data-ocid="power_supply.select"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -450,29 +515,11 @@ const SectionPanel = React.memo(function SectionPanel({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                {(psFields[psData.type] ?? []).map((fieldName) => (
-                  <div key={fieldName} className="space-y-1">
-                    <Label className="text-xs">{fieldName}</Label>
-                    <input
-                      type="text"
-                      value={psData.fields[fieldName] ?? ""}
-                      onChange={(e) =>
-                        onPowerSupplyChange(section.id, {
-                          ...psData,
-                          fields: {
-                            ...psData.fields,
-                            [fieldName]: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder="0"
-                      className="w-full px-3 py-1.5 text-sm border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                      data-ocid="questionnaire.input"
-                    />
-                  </div>
-                ))}
-              </div>
+              <PowerSupplyTable
+                sectionId={section.id}
+                data={psData}
+                onChange={onPowerSupplyChange}
+              />
             </div>
           )}
         </div>
@@ -492,19 +539,29 @@ export function QuestionnairePage() {
 
   const site = sites.find((s) => s.id === siteId);
   const client = clients.find((c) => c.id === site?.clientId);
-  const template =
-    templates.find((t) => t.id === templates[0]?.id) ?? templates[0];
 
   const [audit, setAudit] = useState<Audit | null>(() => {
     if (!siteId) return null;
     return loadOrCreateAudit(siteId, templates);
   });
 
+  const template =
+    templates.find((t) => t.id === audit?.templateId) ?? templates[0];
+
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set([template?.sections[0]?.id ?? ""]),
   );
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>(
+    [],
+  );
+  // Track last auto-filled remark per question: questionId -> last preset that was auto-filled
+  const [autoFilledRemarks, setAutoFilledRemarks] = useState<
+    Record<string, string>
+  >({});
+
+  const pageTopRef = useRef<HTMLDivElement>(null);
 
   // Auto-save debounce
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -519,6 +576,13 @@ export function QuestionnairePage() {
             JSON.stringify(updatedAudit),
           );
         }
+        // Also push to backend on autosave
+        pushAuditToBackend(updatedAudit).catch((e) =>
+          console.warn(
+            "[Questionnaire] pushAuditToBackend (autosave) failed:",
+            e,
+          ),
+        );
       }, 5000);
     },
     [siteId],
@@ -542,29 +606,82 @@ export function QuestionnairePage() {
     [triggerAutoSave],
   );
 
+  // Build validation errors from current audit state
+  const validateAudit = useCallback(
+    (currentAudit: Audit): ValidationError[] => {
+      if (!template) return [];
+      const errors: ValidationError[] = [];
+      for (const section of template.sections) {
+        section.questions.forEach((question, qi) => {
+          const ans = currentAudit.answers[question.id];
+          if (question.required && !ans?.answer) {
+            errors.push({
+              sectionId: section.id,
+              sectionTitle: section.title,
+              questionId: question.id,
+              questionIndex: qi + 1,
+              questionText: question.text,
+              errorType: "answer",
+            });
+          }
+          if (
+            question.imageRequired &&
+            (!ans?.images || ans.images.length === 0)
+          ) {
+            errors.push({
+              sectionId: section.id,
+              sectionTitle: section.title,
+              questionId: question.id,
+              questionIndex: qi + 1,
+              questionText: question.text,
+              errorType: "image",
+            });
+          }
+        });
+      }
+      return errors;
+    },
+    [template],
+  );
+
   const handleAnswerChange = useCallback(
     (
       questionId: string,
       field: keyof AuditAnswer,
       value: string | string[],
     ) => {
-      updateAudit((prev) => ({
-        ...prev,
-        answers: {
-          ...prev.answers,
-          [questionId]: {
-            ...(prev.answers[questionId] ?? {
-              answer: "",
-              remarks: "",
-              images: [],
-            }),
-            [field]: value,
+      updateAudit((prev) => {
+        const next = {
+          ...prev,
+          answers: {
+            ...prev.answers,
+            [questionId]: {
+              ...(prev.answers[questionId] ?? {
+                answer: "",
+                remarks: "",
+                images: [],
+              }),
+              [field]: value,
+            },
           },
-        },
-        updatedAt: Date.now(),
-      }));
+          updatedAt: Date.now(),
+        };
+        // Re-run validation reactively if we have existing errors
+        if (validationErrors.length > 0) {
+          const newErrors = validateAudit(next);
+          setValidationErrors(newErrors);
+        }
+        return next;
+      });
     },
-    [updateAudit],
+    [updateAudit, validationErrors.length, validateAudit],
+  );
+
+  const handleAutoFilledRemarksChange = useCallback(
+    (qId: string, remark: string) => {
+      setAutoFilledRemarks((prev) => ({ ...prev, [qId]: remark }));
+    },
+    [],
   );
 
   const handleObservationChange = useCallback(
@@ -609,6 +726,10 @@ export function QuestionnairePage() {
     saveList(AUDITS_KEY, audits);
     // Clear draft
     if (siteId) localStorage.removeItem(getDraftKey(siteId));
+    // Push to backend (fire-and-forget)
+    pushAuditToBackend(updatedAudit).catch((e) =>
+      console.warn("[Questionnaire] pushAuditToBackend failed:", e),
+    );
   };
 
   const handleSaveDraft = () => {
@@ -627,6 +748,28 @@ export function QuestionnairePage() {
 
   const handleSubmit = () => {
     if (!audit || !user) return;
+
+    // Run validation before proceeding
+    const errors = validateAudit(audit);
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      // Open sections that have errors
+      setOpenSections((prev) => {
+        const next = new Set(prev);
+        for (const err of errors) {
+          next.add(err.sectionId);
+        }
+        return next;
+      });
+      // Scroll to top to show error summary
+      pageTopRef.current?.scrollIntoView({ behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    // Clear any lingering validation errors
+    setValidationErrors([]);
+
     let newStatus: AuditStatus = audit.status;
     const role = user.role;
 
@@ -724,6 +867,9 @@ export function QuestionnairePage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto animate-fade-in">
+      {/* Scroll anchor */}
+      <div ref={pageTopRef} />
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -752,6 +898,37 @@ export function QuestionnairePage() {
         )}
       </div>
 
+      {/* Validation error summary */}
+      {validationErrors.length > 0 && (
+        <div
+          className="mb-4 rounded-lg border border-red-300 bg-red-50 p-4"
+          data-ocid="questionnaire.error_state"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-red-600" />
+            <span className="font-semibold text-red-700 text-sm">
+              Please fix the following before submitting:
+            </span>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {validationErrors.map((err) => (
+              <div
+                key={`${err.sectionId}-${err.questionId}-${err.errorType}`}
+                className="text-xs text-red-600"
+              >
+                • <span className="font-medium">{err.sectionTitle}</span> — Q
+                {err.questionIndex}:{" "}
+                {err.errorType === "answer"
+                  ? "Answer required"
+                  : "Photo required"}{" "}
+                ({err.questionText.slice(0, 60)}
+                {err.questionText.length > 60 ? "..." : ""})
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Sections */}
       <div className="space-y-3">
         {template.sections.map((section) => (
@@ -759,11 +936,14 @@ export function QuestionnairePage() {
             key={section.id}
             section={section}
             audit={audit}
+            validationErrors={validationErrors}
             onAnswerChange={handleAnswerChange}
             onObservationChange={handleObservationChange}
             onPowerSupplyChange={handlePowerSupplyChange}
             isOpen={openSections.has(section.id)}
             onToggle={() => toggleSection(section.id)}
+            autoFilledRemarks={autoFilledRemarks}
+            onAutoFilledRemarksChange={handleAutoFilledRemarksChange}
           />
         ))}
 

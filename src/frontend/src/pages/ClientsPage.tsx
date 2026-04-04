@@ -20,6 +20,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
+  deleteClientFromBackend,
+  pushClientToBackend,
+} from "../lib/backendSync";
+import {
   AUDITS_KEY,
   CLIENTS_KEY,
   SITES_KEY,
@@ -65,17 +69,16 @@ export function ClientsPage() {
     if (!form.name.trim()) return;
     const now = Date.now();
     let updated: Client[];
+    let savedClient: Client;
     if (editClient) {
-      updated = clients.map((c) =>
-        c.id === editClient.id
-          ? {
-              ...c,
-              name: form.name.trim(),
-              industry: form.industry.trim() || undefined,
-              updatedAt: now,
-            }
-          : c,
-      );
+      const next: Client = {
+        ...editClient,
+        name: form.name.trim(),
+        industry: form.industry.trim() || undefined,
+        updatedAt: now,
+      };
+      updated = clients.map((c) => (c.id === editClient.id ? next : c));
+      savedClient = next;
     } else {
       const newClient: Client = {
         id: `client-${now}`,
@@ -85,11 +88,16 @@ export function ClientsPage() {
         updatedAt: now,
       };
       updated = [...clients, newClient];
+      savedClient = newClient;
     }
     saveList(CLIENTS_KEY, updated);
     setClients(updated);
     setDialogOpen(false);
     toast.success(editClient ? "Client updated" : "Client added");
+    // Sync to backend (fire-and-forget)
+    pushClientToBackend(savedClient).catch((e) =>
+      console.warn("[Clients] pushClientToBackend failed:", e),
+    );
   };
 
   const handleDelete = (id: string) => {
@@ -98,6 +106,10 @@ export function ClientsPage() {
     setClients(updated);
     setDeleteId(null);
     toast.success("Client deleted");
+    // Sync to backend (fire-and-forget)
+    deleteClientFromBackend(id).catch((e) =>
+      console.warn("[Clients] deleteClientFromBackend failed:", e),
+    );
   };
 
   return (

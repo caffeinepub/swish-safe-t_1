@@ -12,6 +12,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
+import { getPSConfig } from "../components/PowerSupplyTable";
 import type { Audit, CriticalObservation, PowerSupplyData } from "../types";
 import type { Template } from "../types";
 import type { Site } from "../types";
@@ -178,13 +179,24 @@ export async function exportAuditToWord(
 
     // Power supply
     const ps: PowerSupplyData | undefined = audit.powerSupply[section.id];
-    if (section.hasPowerSupply && ps) {
+    if (section.hasPowerSupply && ps && ps.rows.length > 0) {
       children.push(new Paragraph({ spacing: { after: 160 } }));
       children.push(
         makeParagraph("Power Supply Details", true, HeadingLevel.HEADING_3),
       );
-      const psRows = [["Type", ps.type], ...Object.entries(ps.fields)];
-      children.push(makeTable(["Field", "Value"], psRows));
+      children.push(makeParagraph(`Configuration: ${ps.type}`, false));
+      const psConfig = getPSConfig(ps.type);
+      const psHeaders = [
+        "Circuit Name",
+        ...psConfig.flatMap((g) => g.labels ?? g.subCols),
+      ];
+      const psDataRows = ps.rows.map((row) => [
+        row.circuitName,
+        ...psConfig.flatMap((g) =>
+          (g.labels ?? g.subCols).map((_, i) => row.values[g.subCols[i]] ?? ""),
+        ),
+      ]);
+      children.push(makeTable(psHeaders, psDataRows));
     }
 
     children.push(new Paragraph({ spacing: { after: 300 } }));

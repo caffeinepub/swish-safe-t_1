@@ -53,6 +53,8 @@ export const SITES_KEY = "swish_sites";
 export const TEMPLATES_KEY = "swish_templates";
 export const AUDITS_KEY = "swish_audits";
 export const SEEDED_KEY = "swish_seeded";
+export const SEEDED_V2_KEY = "swish_seeded_v2";
+export const SEEDED_V3_KEY = "swish_seeded_v3";
 
 // User helpers
 export function getUserByUsername(username: string): AppUser | undefined {
@@ -84,9 +86,12 @@ export function ensureAdminSeeded(): void {
     const admin: AppUser = {
       id: "user-admin-1",
       username: "APA_Arun",
-      passwordHash: btoa("APA@2024"),
+      passwordHash: btoa("SWiSH_SafeArun@21"),
       role: "Admin",
       isEnabled: true,
+      employeeId: "EMP-001",
+      name: "Arun",
+      department: "Administration",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -95,7 +100,8 @@ export function ensureAdminSeeded(): void {
 }
 
 export function seedSampleData(): void {
-  if (localStorage.getItem(SEEDED_KEY)) return;
+  // Use SEEDED_V3_KEY so existing users get re-seeded with updated site + user data
+  if (localStorage.getItem(SEEDED_V3_KEY)) return;
 
   const now = Date.now();
 
@@ -108,6 +114,9 @@ export function seedSampleData(): void {
       passwordHash: btoa("Manager@123"),
       role: "Manager",
       isEnabled: true,
+      employeeId: "EMP-002",
+      name: "Sarah",
+      department: "Operations",
       createdAt: now,
       updatedAt: now,
     },
@@ -117,6 +126,9 @@ export function seedSampleData(): void {
       passwordHash: btoa("Review@123"),
       role: "Reviewer",
       isEnabled: true,
+      employeeId: "EMP-003",
+      name: "John",
+      department: "Quality",
       createdAt: now,
       updatedAt: now,
     },
@@ -126,13 +138,28 @@ export function seedSampleData(): void {
       passwordHash: btoa("Audit@123"),
       role: "Auditor",
       isEnabled: true,
+      employeeId: "EMP-004",
+      name: "Priya",
+      department: "Field Audit",
       createdAt: now,
       updatedAt: now,
     },
   ];
   const existingIds = users.map((u) => u.id);
   const newUsers = sampleUsers.filter((u) => !existingIds.includes(u.id));
-  saveList(USERS_KEY, [...users, ...newUsers]);
+  // Also update admin user with profile fields if it exists
+  const updatedUsers = users.map((u) =>
+    u.id === "user-admin-1"
+      ? {
+          ...u,
+          employeeId: u.employeeId ?? "EMP-001",
+          name: u.name ?? "Arun",
+          department: u.department ?? "Administration",
+          updatedAt: now,
+        }
+      : u,
+  );
+  saveList(USERS_KEY, [...updatedUsers, ...newUsers]);
 
   // Clients
   const clients = [
@@ -153,13 +180,24 @@ export function seedSampleData(): void {
   ];
   saveList(CLIENTS_KEY, clients);
 
-  // Sites
+  // Sites — updated with new fields (Indian cities/states)
   const sites = [
     {
       id: "site-1",
       clientId: "client-1",
       name: "Acme - Warehouse A",
-      address: "12 Industrial Ave, Melbourne VIC 3000",
+      siteCode: "ACM-WH-A",
+      address: "12 Industrial Ave, Andheri",
+      locationType: "Metro" as const,
+      scheduledDate: "2026-05-15",
+      assignedAuditorId: "user-aud-1",
+      assignedReviewerId: "user-rev-1",
+      assignedManagerId: "user-mgr-1",
+      templateId: "tmpl-1",
+      area: 45000,
+      city: "Mumbai",
+      state: "Maharashtra",
+      district: "Mumbai Suburban",
       createdAt: now,
       updatedAt: now,
     },
@@ -167,7 +205,18 @@ export function seedSampleData(): void {
       id: "site-2",
       clientId: "client-1",
       name: "Acme - Depot B",
-      address: "88 Logistics Rd, Sydney NSW 2000",
+      siteCode: "ACM-DEP-B",
+      address: "88 Logistics Rd, Whitefield",
+      locationType: "Urban" as const,
+      scheduledDate: "2026-06-01",
+      assignedAuditorId: "user-aud-1",
+      assignedReviewerId: "user-rev-1",
+      assignedManagerId: "user-mgr-1",
+      templateId: "tmpl-1",
+      area: 32000,
+      city: "Bengaluru",
+      state: "Karnataka",
+      district: "Bengaluru Urban",
       createdAt: now,
       updatedAt: now,
     },
@@ -175,7 +224,18 @@ export function seedSampleData(): void {
       id: "site-3",
       clientId: "client-2",
       name: "Metro - Substation 1",
-      address: "45 Power St, Brisbane QLD 4000",
+      siteCode: "MPC-SS-01",
+      address: "45 Power St, Sector 14",
+      locationType: "Metro" as const,
+      scheduledDate: "2026-04-20",
+      assignedAuditorId: "user-aud-1",
+      assignedReviewerId: "user-rev-1",
+      assignedManagerId: "user-mgr-1",
+      templateId: "tmpl-1",
+      area: 18500,
+      city: "Delhi",
+      state: "Delhi",
+      district: "New Delhi",
       createdAt: now,
       updatedAt: now,
     },
@@ -317,6 +377,7 @@ export function seedSampleData(): void {
       status: "Completed" as const,
       submittedBy: "reviewer_john",
       approvedBy: "manager_sarah",
+      completedAt: now - 86400000 * 7,
       answers: {
         "q-1-1": {
           answer: "Compliant",
@@ -357,5 +418,5 @@ export function seedSampleData(): void {
   ];
   saveList(AUDITS_KEY, audits);
 
-  localStorage.setItem(SEEDED_KEY, "1");
+  localStorage.setItem(SEEDED_V3_KEY, "1");
 }

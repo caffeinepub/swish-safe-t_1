@@ -20,19 +20,22 @@ export function LoginPage() {
     return null;
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-    setTimeout(() => {
-      const ok = login(username.trim(), password);
-      setLoading(false);
+    try {
+      const ok = await login(username.trim(), password);
       if (ok) {
         navigate("/dashboard", { replace: true });
       } else {
         setError("Invalid username or password, or account is disabled.");
       }
-    }, 200);
+    } catch {
+      setError("Login failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -41,12 +44,12 @@ export function LoginPage() {
       style={{ backgroundColor: "#F0F2F5" }}
     >
       <div className="w-full max-w-sm">
-        {/* Logo */}
+        {/* Safe_T Logo */}
         <div className="flex justify-center mb-8">
           <img
-            src="/assets/generated/swish-safet-logo-transparent.dim_400x120.png"
-            alt="SWiSH SAFE-T"
-            className="h-14 object-contain"
+            src="/assets/safe_t_logo-019d5406-25c0-7178-967e-9ff0b95d2ae1.png"
+            alt="SAFE-T"
+            className="h-20 object-contain"
           />
         </div>
 
@@ -126,7 +129,7 @@ export function LoginPage() {
             <p className="font-medium mb-1">Demo credentials:</p>
             <p>
               Admin: <code className="font-mono">APA_Arun</code> /{" "}
-              <code className="font-mono">APA@2024</code>
+              <code className="font-mono">SWiSH_SafeArun@21</code>
             </p>
             <p className="mt-0.5">
               Manager: <code className="font-mono">manager_sarah</code> /{" "}
@@ -135,17 +138,15 @@ export function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          &copy; {new Date().getFullYear()}. Built with love using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-foreground"
-          >
-            caffeine.ai
-          </a>
-        </p>
+        {/* Powered by A Plus Automations */}
+        <div className="flex items-center justify-center gap-2 mt-6">
+          <span className="text-xs text-muted-foreground">Powered by:</span>
+          <img
+            src="/assets/logo_aplus-019d58e0-df01-76da-bf58-862ddddba159.png"
+            alt="A Plus Automations"
+            className="h-7 object-contain"
+          />
+        </div>
       </div>
     </div>
   );

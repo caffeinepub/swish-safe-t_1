@@ -33,7 +33,6 @@
   "dependencies": {
     "@dfinity/agent": "~3.3.0",
     "@dfinity/identity": "~3.3.0",
-    "@dfinity/auth-client": "~3.3.0",
     "@dfinity/candid": "~3.3.0",
     "@dfinity/principal": "~3.3.0",
     "@icp-sdk/core": "~4.1.0",
@@ -42,7 +41,6 @@
     "@react-three/fiber": "~9.1.2",
     "@tanstack/react-query": "^5.24.0",
     "@tanstack/react-router": "~1.131.8",
-    "react-router-dom": "^6.28.0",
     "lucide-react": "0.511.0",
     "react-icons": "^5.4.0",
     "@radix-ui/react-slot": "^1.1.0",
@@ -92,6 +90,7 @@
     "three": "^0.176.0",
     "zustand": "~5.0.5",
     "motion": "^12.34.3",
-    "docx": "^8.0.0"
+    "react-router-dom": "^6.28.0",
+    "docx": "^9.0.0"
   }
 }
