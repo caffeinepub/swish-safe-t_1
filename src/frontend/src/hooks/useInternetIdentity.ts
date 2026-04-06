@@ -1,6 +1,5 @@
-// NO-OP STUB — Internet Identity is not used in this app.
-// This file exists only to satisfy any stale imports.
-// Zero @dfinity imports — nothing II-related will ever run.
+// NO-OP STUB: This app uses username/password auth only.
+// Zero imports from @dfinity/auth-client or any II library.
 import {
   type ReactNode,
   createContext,
@@ -8,30 +7,27 @@ import {
   useContext,
 } from "react";
 
-export type Status =
-  | "initializing"
-  | "idle"
-  | "logging-in"
-  | "success"
-  | "loginError";
+export type Status = "idle";
 
 export type InternetIdentityContext = {
   identity: undefined;
   login: () => void;
   clear: () => void;
   loginStatus: Status;
-  isInitializing: boolean;
-  isLoginIdle: boolean;
-  isLoggingIn: boolean;
-  isLoginSuccess: boolean;
-  isLoginError: boolean;
+  isInitializing: false;
+  isLoginIdle: true;
+  isLoggingIn: false;
+  isLoginSuccess: false;
+  isLoginError: false;
   loginError: undefined;
 };
 
-const ctx = createContext<InternetIdentityContext>({
+const noop = () => {};
+
+const stubValue: InternetIdentityContext = {
   identity: undefined,
-  login: () => {},
-  clear: () => {},
+  login: noop,
+  clear: noop,
   loginStatus: "idle",
   isInitializing: false,
   isLoginIdle: true,
@@ -39,27 +35,21 @@ const ctx = createContext<InternetIdentityContext>({
   isLoginSuccess: false,
   isLoginError: false,
   loginError: undefined,
-});
+};
 
-export const useInternetIdentity = (): InternetIdentityContext =>
-  useContext(ctx);
+const InternetIdentityReactContext =
+  createContext<InternetIdentityContext>(stubValue);
+
+export const useInternetIdentity = (): InternetIdentityContext => {
+  return useContext(InternetIdentityReactContext);
+};
 
 export function InternetIdentityProvider({
   children,
 }: { children: ReactNode }) {
-  return createElement(ctx.Provider, {
-    value: {
-      identity: undefined,
-      login: () => {},
-      clear: () => {},
-      loginStatus: "idle" as Status,
-      isInitializing: false,
-      isLoginIdle: true,
-      isLoggingIn: false,
-      isLoginSuccess: false,
-      isLoginError: false,
-      loginError: undefined,
-    },
+  return createElement(
+    InternetIdentityReactContext.Provider,
+    { value: stubValue },
     children,
-  });
+  );
 }

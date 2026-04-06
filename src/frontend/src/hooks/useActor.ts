@@ -1,34 +1,5 @@
-// Simple actor hook — no Internet Identity dependency
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
-import type { backendInterface } from "../backend";
-import { createActorWithConfig } from "../config";
-
-const ACTOR_QUERY_KEY = "actor";
-
+// This hook is not used by the app (which uses getActor() from lib/actor.ts directly).
+// Kept as a stub to avoid import errors if any file references it.
 export function useActor() {
-  const queryClient = useQueryClient();
-  const actorQuery = useQuery<backendInterface>({
-    queryKey: [ACTOR_QUERY_KEY],
-    queryFn: async () => {
-      return await createActorWithConfig();
-    },
-    staleTime: Number.POSITIVE_INFINITY,
-    enabled: true,
-  });
-
-  useEffect(() => {
-    if (actorQuery.data) {
-      queryClient.invalidateQueries({
-        predicate: (query) => {
-          return !query.queryKey.includes(ACTOR_QUERY_KEY);
-        },
-      });
-    }
-  }, [actorQuery.data, queryClient]);
-
-  return {
-    actor: actorQuery.data || null,
-    isFetching: actorQuery.isFetching,
-  };
+  return { actor: null, isFetching: false };
 }
