@@ -1,8 +1,9 @@
-// NO-OP STUB -- Internet Identity is not used in this app.
-// Authentication is handled via username/password stored in the ICP backend.
-// DO NOT import @dfinity/auth-client or AuthClient here.
+// NO-OP STUB — Internet Identity is NOT used in this app.
+// Username/password auth is implemented in AuthContext instead.
+// DO NOT import @dfinity/auth-client here.
 
 import {
+  type PropsWithChildren,
   type ReactNode,
   createContext,
   createElement,
@@ -24,12 +25,10 @@ export type InternetIdentityContext = {
   loginError: undefined;
 };
 
-const noop = () => {};
-
-const stub: InternetIdentityContext = {
+const ctx = createContext<InternetIdentityContext>({
   identity: undefined,
-  login: noop,
-  clear: noop,
+  login: () => {},
+  clear: () => {},
   loginStatus: "idle",
   isInitializing: false,
   isLoginIdle: true,
@@ -37,21 +36,28 @@ const stub: InternetIdentityContext = {
   isLoginSuccess: false,
   isLoginError: false,
   loginError: undefined,
-};
+});
 
-const InternetIdentityReactContext =
-  createContext<InternetIdentityContext>(stub);
-
-export const useInternetIdentity = (): InternetIdentityContext => {
-  return useContext(InternetIdentityReactContext);
-};
+export function useInternetIdentity(): InternetIdentityContext {
+  return useContext(ctx);
+}
 
 export function InternetIdentityProvider({
   children,
-}: { children: ReactNode }) {
-  return createElement(
-    InternetIdentityReactContext.Provider,
-    { value: stub },
+}: PropsWithChildren<{ children: ReactNode }>) {
+  return createElement(ctx.Provider, {
+    value: {
+      identity: undefined,
+      login: () => {},
+      clear: () => {},
+      loginStatus: "idle",
+      isInitializing: false,
+      isLoginIdle: true,
+      isLoggingIn: false,
+      isLoginSuccess: false,
+      isLoginError: false,
+      loginError: undefined,
+    },
     children,
-  );
+  });
 }
