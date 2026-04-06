@@ -27,6 +27,7 @@ import {
 import { Edit, KeyRound, Plus, Shield, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { SyncButton } from "../components/SyncButton";
 import { useAuth } from "../hooks/useAuth";
 import {
   deleteUserFromBackend,
@@ -56,6 +57,14 @@ export function AdminPage() {
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      setUsers(getList<AppUser>(USERS_KEY));
+    };
+    window.addEventListener("swish-sync", handler);
+    return () => window.removeEventListener("swish-sync", handler);
   }, []);
 
   const openAdd = () => {
@@ -244,15 +253,18 @@ export function AdminPage() {
             {users.length} user{users.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Button
-          onClick={openAdd}
-          style={{ backgroundColor: "#96BB1A", color: "#111" }}
-          className="font-semibold"
-          data-ocid="admin.primary_button"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add User
-        </Button>
+        <div className="flex items-center gap-2">
+          <SyncButton />
+          <Button
+            onClick={openAdd}
+            style={{ backgroundColor: "#96BB1A", color: "#111" }}
+            className="font-semibold"
+            data-ocid="admin.primary_button"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add User
+          </Button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-border shadow-card overflow-hidden">
@@ -323,7 +335,7 @@ export function AdminPage() {
                   {u.elevatedUntil && u.elevatedUntil > now ? (
                     <div className="flex items-center gap-2">
                       <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs">
-                        TEMP ADMIN \u2014 {getCountdown(u.elevatedUntil)}
+                        TEMP ADMIN &mdash; {getCountdown(u.elevatedUntil)}
                       </Badge>
                       <button
                         type="button"

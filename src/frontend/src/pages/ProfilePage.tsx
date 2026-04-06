@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Camera, Edit2, Save, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -36,6 +36,7 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { IndiaMap } from "../components/IndiaMap";
+import { SyncButton } from "../components/SyncButton";
 import { useAuth } from "../hooks/useAuth";
 import { pushUserToBackend } from "../lib/backendUserService";
 import {
@@ -90,9 +91,20 @@ export function ProfilePage() {
   });
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const sites = getList<Site>(SITES_KEY);
-  const clients = getList<Client>(CLIENTS_KEY);
-  const audits = getList<Audit>(AUDITS_KEY);
+  const [sites, setSites] = useState(() => getList<Site>(SITES_KEY));
+  const [clients, setClients] = useState(() => getList<Client>(CLIENTS_KEY));
+  const [audits, setAudits] = useState(() => getList<Audit>(AUDITS_KEY));
+
+  useEffect(() => {
+    const handler = () => {
+      setAllUsers(getList<AppUser>(USERS_KEY));
+      setSites(getList<Site>(SITES_KEY));
+      setClients(getList<Client>(CLIENTS_KEY));
+      setAudits(getList<Audit>(AUDITS_KEY));
+    };
+    window.addEventListener("swish-sync", handler);
+    return () => window.removeEventListener("swish-sync", handler);
+  }, []);
 
   // RBAC: who can view whom
   const viewableUsers = (() => {
@@ -279,29 +291,32 @@ export function ProfilePage() {
             Employee information and performance dashboard
           </p>
         </div>
-        {(currentUser.role === "Admin" || currentUser.role === "Manager") &&
-          viewableUsers.length > 1 && (
-            <div className="w-64">
-              <Select
-                value={selectedUserId}
-                onValueChange={(v) => {
-                  setSelectedUserId(v);
-                  setEditing(false);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  {viewableUsers.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.username} ({u.role})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+        <div className="flex items-center gap-3 flex-wrap">
+          {(currentUser.role === "Admin" || currentUser.role === "Manager") &&
+            viewableUsers.length > 1 && (
+              <div className="w-64">
+                <Select
+                  value={selectedUserId}
+                  onValueChange={(v) => {
+                    setSelectedUserId(v);
+                    setEditing(false);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select employee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {viewableUsers.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.username} ({u.role})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          <SyncButton />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -630,7 +645,9 @@ function InfoRow({
   return (
     <div className="flex justify-between items-start gap-2">
       <span className="text-muted-foreground shrink-0">{label}</span>
-      <span className="font-medium text-right truncate">{value ?? "—"}</span>
+      <span className="font-medium text-right truncate">
+        {value ?? "\u2014"}
+      </span>
     </div>
   );
 }

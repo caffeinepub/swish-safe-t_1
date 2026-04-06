@@ -1,27 +1,30 @@
-// NO-OP STUB — Internet Identity is NOT used in this app.
-// Username/password auth is implemented in AuthContext instead.
-// DO NOT import @dfinity/auth-client here.
-
+// NO-OP STUB — Internet Identity is not used in this app.
+// This file exists only to satisfy any stale imports.
+// Zero @dfinity imports — nothing II-related will ever run.
 import {
-  type PropsWithChildren,
   type ReactNode,
   createContext,
   createElement,
   useContext,
 } from "react";
 
-export type Status = "idle";
+export type Status =
+  | "initializing"
+  | "idle"
+  | "logging-in"
+  | "success"
+  | "loginError";
 
 export type InternetIdentityContext = {
   identity: undefined;
   login: () => void;
   clear: () => void;
   loginStatus: Status;
-  isInitializing: false;
-  isLoginIdle: true;
-  isLoggingIn: false;
-  isLoginSuccess: false;
-  isLoginError: false;
+  isInitializing: boolean;
+  isLoginIdle: boolean;
+  isLoggingIn: boolean;
+  isLoginSuccess: boolean;
+  isLoginError: boolean;
   loginError: undefined;
 };
 
@@ -38,19 +41,18 @@ const ctx = createContext<InternetIdentityContext>({
   loginError: undefined,
 });
 
-export function useInternetIdentity(): InternetIdentityContext {
-  return useContext(ctx);
-}
+export const useInternetIdentity = (): InternetIdentityContext =>
+  useContext(ctx);
 
 export function InternetIdentityProvider({
   children,
-}: PropsWithChildren<{ children: ReactNode }>) {
+}: { children: ReactNode }) {
   return createElement(ctx.Provider, {
     value: {
       identity: undefined,
       login: () => {},
       clear: () => {},
-      loginStatus: "idle",
+      loginStatus: "idle" as Status,
       isInitializing: false,
       isLoginIdle: true,
       isLoggingIn: false,

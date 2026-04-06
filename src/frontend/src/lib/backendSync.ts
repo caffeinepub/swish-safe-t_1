@@ -23,19 +23,27 @@ import {
 // ===== Sync status =====
 export type SyncStatus = "idle" | "syncing" | "error" | "offline";
 
-type SyncStatusListener = (status: SyncStatus) => void;
+type SyncStatusListener = (status: SyncStatus, lastSyncedAt?: number) => void;
 
 let _syncStatus: SyncStatus = navigator.onLine ? "idle" : "offline";
+let _lastSyncedAt: number | null = null;
 const _listeners: Set<SyncStatusListener> = new Set();
 
 export function getSyncStatus(): SyncStatus {
   return _syncStatus;
 }
 
+export function getLastSyncedAt(): number | null {
+  return _lastSyncedAt;
+}
+
 export function setSyncStatus(status: SyncStatus): void {
   _syncStatus = status;
+  if (status === "idle") {
+    _lastSyncedAt = Date.now();
+  }
   for (const listener of _listeners) {
-    listener(status);
+    listener(status, _lastSyncedAt ?? undefined);
   }
 }
 
@@ -49,11 +57,9 @@ let _retryTimer: ReturnType<typeof setTimeout> | null = null;
 const MAX_RETRY_DELAY_MS = 60_000;
 const BASE_RETRY_DELAY_MS = 5_000;
 let _retryCount = 0;
-// Guard flag: is a retry-triggered pull already in-flight?
 let _retryInFlight = false;
 
 function scheduleRetry(): void {
-  // Never schedule if a retry is already pending or in-flight
   if (_retryTimer !== null || _retryInFlight) return;
   if (!navigator.onLine) return;
 
@@ -61,13 +67,12 @@ function scheduleRetry(): void {
     BASE_RETRY_DELAY_MS * 2 ** _retryCount,
     MAX_RETRY_DELAY_MS,
   );
-  _retryCount = Math.min(_retryCount + 1, 6); // cap exponent at 6 (max ~64s)
+  _retryCount = Math.min(_retryCount + 1, 6);
   _retryTimer = setTimeout(() => {
     _retryTimer = null;
     if (!navigator.onLine) return;
     if (_retryInFlight) return;
     _retryInFlight = true;
-    // Reset actor so a fresh connection is attempted
     resetActor();
     pullAllFromBackend()
       .then(() => {
@@ -77,8 +82,6 @@ function scheduleRetry(): void {
       })
       .catch(() => {
         _retryInFlight = false;
-        // pullAllFromBackend already scheduled its own retry via its catch block,
-        // so we don't double-schedule here.
       });
   }, delay);
 }
@@ -97,14 +100,13 @@ const QUEUE_KEY = "swish_sync_queue";
 export interface SyncOp {
   op: "upsert" | "delete";
   entity: "client" | "site" | "template" | "audit";
-  data: string; // JSON stringified object OR id string for deletes
+  data: string;
   timestamp: number;
 }
 
 export function enqueueSyncOp(op: SyncOp): void {
   try {
     const queue = getQueue();
-    // Replace previous op for same entity+id
     const dataId = op.op === "delete" ? op.data : JSON.parse(op.data)?.id;
     const filtered = queue.filter((item) => {
       const itemId =
@@ -116,6 +118,22 @@ export function enqueueSyncOp(op: SyncOp): void {
   } catch (e) {
     console.warn("[BackendSync] Failed to enqueue op:", e);
   }
+}
+
+export function getPendingIds(entity: SyncOp["entity"]): Set<string> {
+  const queue = getQueue();
+  const ids = new Set<string>();
+  for (const op of queue) {
+    if (op.entity === entity && op.op === "upsert") {
+      try {
+        const parsed = JSON.parse(op.data);
+        if (parsed?.id) ids.add(parsed.id);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return ids;
 }
 
 function getQueue(): SyncOp[] {
@@ -130,6 +148,16 @@ function getQueue(): SyncOp[] {
 
 function clearQueue(): void {
   localStorage.removeItem(QUEUE_KEY);
+}
+
+function extractErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
 }
 
 export async function flushSyncQueue(): Promise<void> {
@@ -160,11 +188,14 @@ export async function flushSyncQueue(): Promise<void> {
             await actor.upsertAudit(toBackendAudit(parsed));
         }
       } catch (e) {
-        console.warn("[BackendSync] Failed to flush op:", op, e);
+        const msg = extractErrorMessage(e);
+        console.warn(
+          `[BackendSync] Failed to flush op entity=${op.entity} op=${op.op}: ${msg}`,
+          e,
+        );
         failed.push(op);
       }
     }
-    // Keep only failed ops in the queue
     if (failed.length === 0) {
       clearQueue();
       setSyncStatus("idle");
@@ -175,8 +206,8 @@ export async function flushSyncQueue(): Promise<void> {
       scheduleRetry();
     }
   } catch (e) {
-    console.warn("[BackendSync] Failed to flush queue:", e);
-    // Reset actor so next attempt creates a fresh connection
+    const msg = extractErrorMessage(e);
+    console.warn(`[BackendSync] Failed to get actor for flush: ${msg}`, e);
     resetActor();
     setSyncStatus("error");
     scheduleRetry();
@@ -188,13 +219,15 @@ export function setupOnlineListener(): void {
     clearRetry();
     _retryCount = 0;
     setSyncStatus("idle");
-    // Give the network a moment to stabilise before syncing
     setTimeout(() => {
       resetActor();
       pullAllFromBackend()
         .then(() => flushSyncQueue())
         .catch((e) =>
-          console.warn("[BackendSync] Auto-flush on online failed:", e),
+          console.warn(
+            "[BackendSync] Auto-flush on online failed:",
+            extractErrorMessage(e),
+          ),
         );
     }, 1000);
   });
@@ -207,11 +240,8 @@ export function setupOnlineListener(): void {
 // Guard to prevent concurrent pullAllFromBackend calls
 let _pullInFlight: Promise<void> | null = null;
 
-// ===== Pull all =====
 export async function pullAllFromBackend(): Promise<void> {
-  // If a pull is already in-flight, wait for it instead of starting a second one
   if (_pullInFlight) return _pullInFlight;
-
   _pullInFlight = _doPull();
   try {
     await _pullInFlight;
@@ -244,8 +274,8 @@ async function _doPull(): Promise<void> {
     _retryCount = 0;
     clearRetry();
   } catch (e) {
-    console.warn("[BackendSync] pullAllFromBackend failed:", e);
-    // Reset actor so next attempt creates a fresh connection
+    const msg = extractErrorMessage(e);
+    console.warn(`[BackendSync] pullAllFromBackend failed: ${msg}`, e);
     resetActor();
     setSyncStatus(navigator.onLine ? "error" : "offline");
     if (navigator.onLine) scheduleRetry();
@@ -259,16 +289,21 @@ function mergeIntoLocal<T extends { id: string; updatedAt: number }>(
 ): void {
   const localItems = getList<T>(key);
   const localMap = new Map(localItems.map((i) => [i.id, i]));
-
   for (const remote of remoteItems) {
     const local = localMap.get(remote.id);
-    // Last-write-wins: use whichever has newer updatedAt
     if (!local || remote.updatedAt > local.updatedAt) {
       localMap.set(remote.id, remote);
     }
   }
-
   saveList(key, Array.from(localMap.values()));
+}
+
+// ===== Manual sync (push then pull) =====
+export async function manualSync(): Promise<void> {
+  clearRetry();
+  resetActor();
+  await flushSyncQueue();
+  await pullAllFromBackend();
 }
 
 // ===== Per-entity push/delete =====
@@ -281,8 +316,8 @@ async function withRetryQueue<T>(
     await fn();
     setSyncStatus("idle");
   } catch (e) {
-    console.warn("[BackendSync] push failed, queuing:", e);
-    // Reset actor so next attempt gets a fresh connection
+    const msg = extractErrorMessage(e);
+    console.warn(`[BackendSync] push failed, queuing: ${msg}`, e);
     resetActor();
     fallback();
     setSyncStatus(navigator.onLine ? "error" : "offline");

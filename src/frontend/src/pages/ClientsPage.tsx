@@ -16,9 +16,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Building2, ChevronRight, Edit, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { SyncButton } from "../components/SyncButton";
 import {
   deleteClientFromBackend,
   pushClientToBackend,
@@ -40,8 +41,18 @@ export function ClientsPage() {
   const [form, setForm] = useState({ name: "", industry: "" });
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const sites = getList<Site>(SITES_KEY);
-  const audits = getList<Audit>(AUDITS_KEY);
+  const [sites, setSites] = useState(() => getList<Site>(SITES_KEY));
+  const [audits, setAudits] = useState(() => getList<Audit>(AUDITS_KEY));
+
+  useEffect(() => {
+    const handler = () => {
+      setClients(getList<Client>(CLIENTS_KEY));
+      setSites(getList<Site>(SITES_KEY));
+      setAudits(getList<Audit>(AUDITS_KEY));
+    };
+    window.addEventListener("swish-sync", handler);
+    return () => window.removeEventListener("swish-sync", handler);
+  }, []);
 
   const getSiteCount = (clientId: string) =>
     sites.filter((s) => s.clientId === clientId).length;
@@ -122,15 +133,18 @@ export function ClientsPage() {
             {clients.length} client{clients.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Button
-          onClick={openAdd}
-          style={{ backgroundColor: "#96BB1A", color: "#111" }}
-          className="font-semibold"
-          data-ocid="clients.primary_button"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Client
-        </Button>
+        <div className="flex items-center gap-2">
+          <SyncButton />
+          <Button
+            onClick={openAdd}
+            style={{ backgroundColor: "#96BB1A", color: "#111" }}
+            className="font-semibold"
+            data-ocid="clients.primary_button"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Client
+          </Button>
+        </div>
       </div>
 
       {/* Table */}
@@ -160,7 +174,7 @@ export function ClientsPage() {
                 <TableRow key={client.id} data-ocid={`clients.item.${idx + 1}`}>
                   <TableCell className="font-medium">{client.name}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {client.industry ?? "—"}
+                    {client.industry ?? "\u2014"}
                   </TableCell>
                   <TableCell>{getSiteCount(client.id)}</TableCell>
                   <TableCell>{getAuditCount(client.id)}</TableCell>

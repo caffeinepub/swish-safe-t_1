@@ -1,3 +1,4 @@
+// Simple actor hook — no Internet Identity dependency
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { backendInterface } from "../backend";
@@ -7,7 +8,6 @@ const ACTOR_QUERY_KEY = "actor";
 
 export function useActor() {
   const queryClient = useQueryClient();
-
   const actorQuery = useQuery<backendInterface>({
     queryKey: [ACTOR_QUERY_KEY],
     queryFn: async () => {

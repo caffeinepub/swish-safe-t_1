@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -6,26 +16,45 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   ChevronDown,
   ChevronUp,
+  Download,
   FileText,
   GripVertical,
   Plus,
   Save,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SyncButton } from "../components/SyncButton";
+import { useAuth } from "../hooks/useAuth";
 import {
   deleteTemplateFromBackend,
+  getPendingIds,
   pushTemplateToBackend,
+  subscribeSyncStatus,
 } from "../lib/backendSync";
 import { TEMPLATES_KEY, getList, saveList } from "../lib/dataStore";
+import {
+  exportTemplateAsExcel,
+  exportTemplateAsJSON,
+  exportTemplateAsPDF,
+  exportTemplateAsWord,
+  parseTemplateJSON,
+} from "../lib/templateExport";
 import type { Template, TemplateQuestion, TemplateSection } from "../types";
 
 // Tag-based options input — each option is a pill/badge that can be removed.
@@ -124,6 +153,9 @@ function QuestionOptionsInput({
 }
 
 export function TemplatePage() {
+  const { user } = useAuth();
+  const canImport = user?.role === "Admin" || user?.role === "Manager";
+
   const [templates, setTemplates] = useState(() =>
     getList<Template>(TEMPLATES_KEY),
   );
@@ -132,6 +164,106 @@ export function TemplatePage() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(),
   );
+
+  // Pending sync IDs
+  const [pendingTemplateIds, setPendingTemplateIds] = useState<Set<string>>(
+    () => getPendingIds("template"),
+  );
+
+  useEffect(() => {
+    const unsub = subscribeSyncStatus(() => {
+      setPendingTemplateIds(getPendingIds("template"));
+    });
+    return unsub;
+  }, []);
+
+  // Reload data on sync
+  useEffect(() => {
+    const handler = () => {
+      setTemplates(getList<Template>(TEMPLATES_KEY));
+      setPendingTemplateIds(getPendingIds("template"));
+    };
+    window.addEventListener("swish-sync", handler);
+    return () => window.removeEventListener("swish-sync", handler);
+  }, []);
+
+  // Import state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [conflictTemplate, setConflictTemplate] = useState<Template | null>(
+    null,
+  );
+  const [conflictExisting, setConflictExisting] = useState<Template | null>(
+    null,
+  );
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+
+  const doImport = (tmpl: Template) => {
+    const list = getList<Template>(TEMPLATES_KEY);
+    const idx = list.findIndex((t) => t.id === tmpl.id);
+    let updated: Template[];
+    if (idx >= 0) {
+      updated = list.map((t) => (t.id === tmpl.id ? tmpl : t));
+    } else {
+      updated = [...list, tmpl];
+    }
+    saveList(TEMPLATES_KEY, updated);
+    setTemplates(updated);
+    toast.success(`Template "${tmpl.name}" imported`);
+    pushTemplateToBackend(tmpl).catch((e) =>
+      console.warn("[Templates] pushTemplateToBackend (import) failed:", e),
+    );
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = ev.target?.result as string;
+      const result = parseTemplateJSON(content);
+      if (!result.success || !result.template) {
+        toast.error(result.error ?? "Import failed");
+        return;
+      }
+      const existing = templates.find((t) => t.name === result.template!.name);
+      if (existing) {
+        setConflictTemplate(result.template);
+        setConflictExisting(existing);
+        setConflictDialogOpen(true);
+      } else {
+        doImport(result.template);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleConflictOverwrite = () => {
+    if (!conflictTemplate || !conflictExisting) return;
+    const overwritten: Template = {
+      ...conflictTemplate,
+      id: conflictExisting.id,
+    };
+    setConflictDialogOpen(false);
+    setConflictTemplate(null);
+    setConflictExisting(null);
+    doImport(overwritten);
+  };
+
+  const handleConflictSaveAsCopy = () => {
+    if (!conflictTemplate) return;
+    const copy: Template = {
+      ...conflictTemplate,
+      name: `${conflictTemplate.name} (Copy)`,
+      id: `tmpl-${Date.now()}`,
+    };
+    setConflictDialogOpen(false);
+    setConflictTemplate(null);
+    setConflictExisting(null);
+    doImport(copy);
+  };
 
   const openNew = () => {
     const now = Date.now();
@@ -332,15 +464,38 @@ export function TemplatePage() {
             {templates.length} template{templates.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Button
-          onClick={openNew}
-          style={{ backgroundColor: "#96BB1A", color: "#111" }}
-          className="font-semibold"
-          data-ocid="templates.primary_button"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          New Template
-        </Button>
+        <div className="flex items-center gap-2">
+          <SyncButton />
+          {canImport && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <Button
+                variant="outline"
+                onClick={handleImportClick}
+                className="font-medium"
+                data-ocid="templates.upload_button"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Import
+              </Button>
+            </>
+          )}
+          <Button
+            onClick={openNew}
+            style={{ backgroundColor: "#96BB1A", color: "#111" }}
+            className="font-semibold"
+            data-ocid="templates.primary_button"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Template
+          </Button>
+        </div>
       </div>
 
       {/* Template List */}
@@ -361,15 +516,59 @@ export function TemplatePage() {
               data-ocid={`templates.item.${idx + 1}`}
             >
               <CardContent className="p-4 flex items-center justify-between">
-                <div>
+                <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-semibold">{tmpl.name}</p>
-                  <p className="text-sm text-muted-foreground">
+                  {pendingTemplateIds.has(tmpl.id) && (
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                      Pending sync
+                    </span>
+                  )}
+                  <p className="text-sm text-muted-foreground w-full">
                     {tmpl.sections.length} section
                     {tmpl.sections.length !== 1 ? "s" : ""} &mdash; updated{" "}
                     {new Date(tmpl.updatedAt).toLocaleDateString("en-AU")}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
+                  {/* Export dropdown */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-ocid={`templates.secondary_button.${idx + 1}`}
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1" />
+                        Export
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => exportTemplateAsJSON(tmpl)}
+                      >
+                        JSON
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => exportTemplateAsExcel(tmpl)}
+                      >
+                        Excel (CSV)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          exportTemplateAsWord(tmpl).catch(console.error);
+                        }}
+                      >
+                        Word (.docx)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => exportTemplateAsPDF(tmpl)}
+                      >
+                        PDF
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -393,6 +592,48 @@ export function TemplatePage() {
           ))}
         </div>
       )}
+
+      {/* Import Conflict Dialog */}
+      <AlertDialog
+        open={conflictDialogOpen}
+        onOpenChange={setConflictDialogOpen}
+      >
+        <AlertDialogContent data-ocid="template_import.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Template name conflict</AlertDialogTitle>
+            <AlertDialogDescription>
+              A template named &ldquo;{conflictTemplate?.name}&rdquo; already
+              exists. What would you like to do?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setConflictDialogOpen(false);
+                setConflictTemplate(null);
+                setConflictExisting(null);
+              }}
+              data-ocid="template_import.cancel_button"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConflictSaveAsCopy}
+              className="bg-muted text-foreground hover:bg-muted/80 border border-border"
+              data-ocid="template_import.secondary_button"
+            >
+              Save as Copy
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={handleConflictOverwrite}
+              style={{ backgroundColor: "#96BB1A", color: "#111" }}
+              data-ocid="template_import.confirm_button"
+            >
+              Overwrite
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Template Editor Dialog */}
       {editorOpen && editTemplate && (

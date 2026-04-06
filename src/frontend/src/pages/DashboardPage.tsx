@@ -18,13 +18,13 @@ import {
   CheckCircle,
   ClipboardList,
   Clock,
-  Eye,
   FileEdit,
   Plus,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StatusBadge } from "../components/StatusBadge";
+import { SyncButton } from "../components/SyncButton";
 import { useAuth } from "../hooks/useAuth";
 import {
   AUDITS_KEY,
@@ -42,10 +42,23 @@ export function DashboardPage() {
   const [selectedClient, setSelectedClient] = useState("");
   const [selectedSite, setSelectedSite] = useState("");
 
-  const audits = getList<Audit>(AUDITS_KEY);
-  const clients = getList<Client>(CLIENTS_KEY);
-  const sites = getList<Site>(SITES_KEY);
-  const templates = getList<Template>(TEMPLATES_KEY);
+  const [audits, setAudits] = useState(() => getList<Audit>(AUDITS_KEY));
+  const [clients, setClients] = useState(() => getList<Client>(CLIENTS_KEY));
+  const [sites, setSites] = useState(() => getList<Site>(SITES_KEY));
+  const [templates, setTemplates] = useState(() =>
+    getList<Template>(TEMPLATES_KEY),
+  );
+
+  useEffect(() => {
+    const handler = () => {
+      setAudits(getList<Audit>(AUDITS_KEY));
+      setClients(getList<Client>(CLIENTS_KEY));
+      setSites(getList<Site>(SITES_KEY));
+      setTemplates(getList<Template>(TEMPLATES_KEY));
+    };
+    window.addEventListener("swish-sync", handler);
+    return () => window.removeEventListener("swish-sync", handler);
+  }, []);
 
   const sitesForClient = useMemo(
     () => sites.filter((s) => s.clientId === selectedClient),
@@ -122,15 +135,18 @@ export function DashboardPage() {
             Welcome back, {user?.username}
           </p>
         </div>
-        <Button
-          onClick={() => setNewAuditOpen(true)}
-          style={{ backgroundColor: "#96BB1A", color: "#111" }}
-          className="font-semibold"
-          data-ocid="dashboard.primary_button"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          New Audit
-        </Button>
+        <div className="flex items-center gap-2">
+          <SyncButton />
+          <Button
+            onClick={() => setNewAuditOpen(true)}
+            style={{ backgroundColor: "#96BB1A", color: "#111" }}
+            className="font-semibold"
+            data-ocid="dashboard.primary_button"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Audit
+          </Button>
+        </div>
       </div>
 
       {/* KPI Cards */}
