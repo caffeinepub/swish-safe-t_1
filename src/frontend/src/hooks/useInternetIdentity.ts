@@ -1,5 +1,13 @@
-// NO-OP STUB — This app uses username/password auth only.
-// Zero DFINITY imports. Do NOT add any @dfinity imports here.
+// NO-OP STUB -- Internet Identity is not used in this app.
+// Authentication is handled via username/password stored in the ICP backend.
+// DO NOT import @dfinity/auth-client or AuthClient here.
+
+import {
+  type ReactNode,
+  createContext,
+  createElement,
+  useContext,
+} from "react";
 
 export type Status = "idle";
 
@@ -8,31 +16,42 @@ export type InternetIdentityContext = {
   login: () => void;
   clear: () => void;
   loginStatus: Status;
-  isInitializing: boolean;
-  isLoginIdle: boolean;
-  isLoggingIn: boolean;
-  isLoginSuccess: boolean;
-  isLoginError: boolean;
+  isInitializing: false;
+  isLoginIdle: true;
+  isLoggingIn: false;
+  isLoginSuccess: false;
+  isLoginError: false;
   loginError: undefined;
 };
 
-export function useInternetIdentity(): InternetIdentityContext {
-  return {
-    identity: undefined,
-    login: () => {},
-    clear: () => {},
-    loginStatus: "idle",
-    isInitializing: false,
-    isLoginIdle: true,
-    isLoggingIn: false,
-    isLoginSuccess: false,
-    isLoginError: false,
-    loginError: undefined,
-  };
-}
+const noop = () => {};
+
+const stub: InternetIdentityContext = {
+  identity: undefined,
+  login: noop,
+  clear: noop,
+  loginStatus: "idle",
+  isInitializing: false,
+  isLoginIdle: true,
+  isLoggingIn: false,
+  isLoginSuccess: false,
+  isLoginError: false,
+  loginError: undefined,
+};
+
+const InternetIdentityReactContext =
+  createContext<InternetIdentityContext>(stub);
+
+export const useInternetIdentity = (): InternetIdentityContext => {
+  return useContext(InternetIdentityReactContext);
+};
 
 export function InternetIdentityProvider({
   children,
-}: { children: React.ReactNode }) {
-  return children as React.ReactElement;
+}: { children: ReactNode }) {
+  return createElement(
+    InternetIdentityReactContext.Provider,
+    { value: stub },
+    children,
+  );
 }
